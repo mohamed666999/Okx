@@ -2,6 +2,7 @@
 """
 MSSI TRADING BOT — OKX DEMO EDITION
 ⚠️ WARNING: API KEYS ARE HARD-CODED — DO NOT USE IN PRODUCTION
+✅ FINAL VERSION: Auto-filter invalid symbols, supports POL instead of MATIC
 """
 
 import asyncio
@@ -98,16 +99,16 @@ class Config:
         "avaxusdt": "AVAX-USDT-SWAP",
         "dogeusdt": "DOGE-USDT-SWAP",
         "wifusdt": "WIF-USDT-SWAP",
-        "1000pepeusdt": "1000PEPE-USDT-SWAP",
         "suiusdt": "SUI-USDT-SWAP",
         "aaveusdt": "AAVE-USDT-SWAP",
         "nearusdt": "NEAR-USDT-SWAP",
         "arbusdt": "ARB-USDT-SWAP",
         "dotusdt": "DOT-USDT-SWAP",
-        "maticusdt": "MATIC-USDT-SWAP",
+        "polusdt": "POL-USDT-SWAP",         # ✅ تم التحديث من MATIC
         "ltcusdt": "LTC-USDT-SWAP",
         "aptusdt": "APT-USDT-SWAP",
         "opustdt": "OP-USDT-SWAP",
+        # ❌ تم حذف 1000PEPEUSDT لأنه غير متوفر أو بصيغة مختلفة
     })
 
     timeframes: List[str] = field(default_factory=lambda: ["1m", "1h", "1d"])
@@ -235,7 +236,7 @@ class FinalDecision:
     is_pullback: bool = False
     regime: str = "UNKNOWN"
     signals: List[str] = field(default_factory=list)
-    reasons: List[str] = field(default_factory=list)
+    reasons: List[str] = field(default_factory=list))
 
 
 @dataclass
@@ -246,7 +247,7 @@ class TrendConfirmation:
     hourly_trend: str = ""
     minute_timing: str = ""
     strength: float = 0.0
-    reasons: List[str] = field(default_factory=list)
+    reasons: List[str] = field(default_factory=list)]
 
 
 # ===========================
@@ -265,7 +266,7 @@ def _mean(v): return sum(v) / len(v) if v else 0.0
 def _std(v):
     if len(v) < 2: return 0.0
     m = _mean(v)
-    return (sum((x - m) ** 2 for x in v) / len(v)) ** 0.5
+    return (sum((x - m)**2 for x in v) / len(v))**0.5
 
 
 def _zscore(val, arr):
@@ -510,7 +511,7 @@ class MSSIEngine:
             m.final_score = m.confidence
         else:
             m.decision = "WAIT"
-            m.final_score = m.confidence  # Keep confidence for analysis
+            m.final_score = m.confidence
 
         m.reasons = [
             f"Regime={regime.value} Dir={direction.value}",
@@ -687,7 +688,8 @@ def health():
 
 
 def run_server():
-    app.run(host="0.0.0.0", port=CFG.flask_port, debug=False, use_reloader=False)
+    port = int(os.getenv("PORT", os.getenv("FLASK_PORT", "8080")))
+    app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
 
 
 # ===========================
@@ -1320,6 +1322,28 @@ def main():
     logger.info(f"   Scanner Interval: {CFG.scanner_interval}s → Top {CFG.scanner_top_n}")
     logger.info("=" * 60)
 
+    # Load markets from OKX and filter valid ones
+    try:
+        logger.info("🔍 Loading all available markets from OKX...")
+        adapter.exchange.load_markets(reload=True)
+        valid_watchlist = {}
+        for key, symbol in CFG.watchlist.items():
+            market = adapter.exchange.markets.get(symbol)
+            if market and market.get('type') == 'swap' and market.get('active', False):
+                valid_watchlist[key] = symbol
+                logger.info(f"✅ VALID SWAP: {symbol}")
+            else:
+                status = "INACTIVE" if market else "NOT FOUND"
+                logger.warning(f"❌ SKIP {status}: {symbol}")
+        CFG.watchlist = valid_watchlist
+        if not CFG.watchlist:
+            logger.critical("🛑 No valid swap markets found. Bot stopped.")
+            return
+        logger.info(f"🎯 Active watchlist: {len(CFG.watchlist)} symbols")
+    except Exception as e:
+        logger.critical(f"🚨 Failed to load markets: {e}")
+        return
+
     ip_monitor.start()
     threading.Thread(target=run_server, daemon=True).start()
     time.sleep(2)
@@ -1331,7 +1355,7 @@ def main():
         logger.critical(f"Failed to connect to OKX: {e}")
         return
 
-    logger.info("Loading initial market data...")
+    logger.info("📥 Loading initial market data...")
     for sk, sym in CFG.watchlist.items():
         cm.ensure(sk, CFG.timeframes)
         for tf in CFG.timeframes:
@@ -1339,10 +1363,11 @@ def main():
                 limit = 500 if tf == "1d" else 300
                 data = adapter.fetch_ohlcv(sym, tf, limit)
                 cm.load(sk, tf, data)
+                logger.debug(f"Loaded {len(data)} candles for {sym} ({tf})")
             except Exception as e:
-                logger.warning(f"Load {sym} {tf}: {e}")
+                logger.warning(f"⚠️ Load failed {sym} {tf}: {e}")
             time.sleep(0.2)
-    logger.info("Data loaded successfully")
+    logger.info("✅ Data loaded successfully")
 
     monitor = PositionMonitor()
     monitor.start()
@@ -1351,12 +1376,12 @@ def main():
     scanner.start()
 
     bot_stats["status"] = "RUNNING"
-    logger.info("Bot is running. Starting WebSocket worker...")
+    logger.info("🟢 Bot is running. Starting WebSocket worker...")
 
     try:
         asyncio.run(ws_worker())
     except KeyboardInterrupt:
-        logger.info("Shutdown requested by user")
+        logger.info("🛑 Shutdown requested by user")
         scanner.stop()
         monitor.stop()
         ip_monitor.stop()
