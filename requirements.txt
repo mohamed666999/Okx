@@ -1,0 +1,5 @@
+websockets
+ccxt
+requests
+Flask
+openai
