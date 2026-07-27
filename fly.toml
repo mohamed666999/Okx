@@ -1,23 +1,20 @@
-# fly.toml app configuration file generated for okx-yfhkuq on 2026-07-27T13:47:55Z
-#
-# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
-#
-
-app = 'okx-yfhkuq'
-primary_region = 'iad'
+app = "okx-yfhkuq"
+primary_region = "iad"
 
 [build]
+
+[env]
+  FLASK_PORT = "8080"
 
 [http_service]
   internal_port = 8080
   force_https = true
-  auto_stop_machines = 'stop'
+  auto_stop_machines = false
   auto_start_machines = true
-  min_machines_running = 0
-  processes = ['app']
+  min_machines_running = 1
+  processes = ["app"]
 
 [[vm]]
-  memory = '1gb'
-  cpu_kind = 'shared'
+  memory = "256mb"
+  cpu_kind = "shared"
   cpus = 1
-  memory_mb = 256
